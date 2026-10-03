@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "audio-poc",
+    "slug": "audio-poc",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "ios": {
+      "bundleIdentifier": "com.example.audiopoc",
+      "infoPlist": {
+        "UIBackgroundModes": ["audio"],
+        "NSMicrophoneUsageDescription": "Used to record audio for versions and live streaming."
+      }
+    },
+    "android": {
+      "package": "com.example.audiopoc",
+      "permissions": [
+        "FOREGROUND_SERVICE",
+        "WAKE_LOCK",
+        "RECORD_AUDIO",
+        "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
+      ]
+    },
+    "plugins": ["expo-dev-client"]
+  }
+}
