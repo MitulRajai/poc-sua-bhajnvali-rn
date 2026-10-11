@@ -1,6 +1,6 @@
 import { AppState, AppStateStatus, Linking, Platform } from 'react-native';
 import AudioRecorderPlayer from 'react-native-audio-recorder-player';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 
 const recorder = new AudioRecorderPlayer();
 
