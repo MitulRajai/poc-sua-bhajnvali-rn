@@ -1,398 +1,687 @@
-# Build & Test Instructions — Windows / Android Studio vs macOS / Xcode
+# Build & Test Instructions — Android (Windows/Mac) and iOS (Mac)
 
 This project needs a **dev client build** (native code from
 `react-native-track-player` and `react-native-audio-recorder-player`),
 not Expo Go. Follow the path that matches your machine.
 
-There are **two ways to run the Android build**: via the command line
-(`npx expo run:android`), or via Android Studio's own device picker and
-Run button — the same workflow you're used to from the Capacitor
-project. Both are documented below; use whichever you prefer, or mix
-them (e.g. build once via CLI, then iterate via Android Studio).
+## Contents
+
+| Part | What it covers |
+|---|---|
+| **A** | Android on Windows via Android Studio (CLI and Studio device picker) |
+| **B** | iOS on Mac: Xcode 27 requirements, run from terminal/VS Code, run from Xcode, simulator vs real iPhone |
+| **C** | iOS from Windows (not possible locally) |
+| **D** | Earlier Android/Windows troubleshooting log (SDK 51 era) |
+| **E** | App shows "Searching for development servers" / waits for a server |
+| **F** | Feature test checklist and how to pull recorded files (Android and iOS) |
+| **G** | Running from VS Code with device selection |
+| **H** | **Fixes to carry into the real implementation** (read before migration) |
+
+> **Two machines are in play.** Part A was written for the Windows
+> machine (`C:\Users\rajai\...`). Parts B, E, F and G apply to the Mac
+> (`/Users/mitulrajai/...`). The Mac project runs **Expo SDK 57**; the
+> earlier Windows project was on SDK 51. Commands are the same, but
+> generated native files differ between SDKs.
 
 ---
 
-## PART A — Windows: Android build via Android Studio
+## PART A — Android on Windows via Android Studio
+
+There are **two ways to run the Android build**: via the command line
+(`npx expo run:android`), or via Android Studio's own device picker and
+Run button, the same workflow as the Capacitor project. Use either, or
+mix them (build once via CLI, then iterate via Studio).
 
 ### A1. One-time environment setup
 
-1. **Install Node.js (LTS)**
-   - Download from https://nodejs.org and install.
-   - Verify: open **Command Prompt** or **PowerShell** and run:
-     ```
-     node -v
-     npm -v
-     ```
-
-2. **Install Android Studio**
-   - Download from https://developer.android.com/studio
-   - Run the installer, keep default options (this installs the Android
-     SDK, SDK Platform-Tools, and an emulator image).
-
-3. **Install the Android SDK components** (if not already installed by
-   the setup wizard):
-   - Open Android Studio → **More Actions** (or **Tools**) →
-     **SDK Manager**.
-   - Under **SDK Platforms** tab: check the latest Android version
-     (e.g. Android 14.0).
-   - Under **SDK Tools** tab: check **Android SDK Build-Tools**,
-     **Android SDK Platform-Tools**, **Android Emulator**.
-   - Click **Apply** to install.
-
-4. **Set the `ANDROID_HOME` environment variable**
-   - In Android Studio's SDK Manager, copy the **Android SDK Location**
-     path shown at the top (typically
-     `C:\Users\<yourname>\AppData\Local\Android\Sdk`).
-   - Open Windows **Settings → System → About → Advanced system
-     settings → Environment Variables**.
-   - Under **User variables**, click **New**:
-     - Variable name: `ANDROID_HOME`
-     - Variable value: the SDK path you copied
-   - Edit the `Path` variable (User variables) and add these two entries:
-     - `%ANDROID_HOME%\platform-tools`
-     - `%ANDROID_HOME%\emulator`
-   - Click OK on all dialogs, then **close and reopen** any terminal
-     windows so the new variables take effect.
-   - Verify:
-     ```
-     adb --version
-     ```
-     This should print an Android Debug Bridge version, not an error.
-
-5. **Install Java (JDK 17)** — usually bundled with Android Studio
-   already. Verify:
+1. **Install Node.js (LTS)** from https://nodejs.org. Verify:
    ```
-   java -version
+   node -v
+   npm -v
    ```
-   If this fails, install **Temurin JDK 17** from
-   https://adoptium.net and set `JAVA_HOME` the same way as step 4.
 
-### A2. Connect a device (emulator or real phone) in Android Studio
+2. **Install Android Studio** from https://developer.android.com/studio
+   with default options (installs the SDK, Platform-Tools and an
+   emulator image).
 
-**Option 1 — emulator:**
-1. Android Studio → **More Actions → Virtual Device Manager**.
-2. Click **Create Device**, pick a phone (e.g. Pixel 7) → **Next**.
-3. Pick a system image → **Next** → **Finish**.
-4. Click the ▶ play icon to launch it once and confirm it boots to the
-   home screen.
+3. **Install SDK components** (if the wizard didn't):
+   Android Studio → **More Actions → SDK Manager**.
+   - **SDK Platforms:** the latest Android version.
+   - **SDK Tools:** Android SDK Build-Tools, Platform-Tools, Emulator.
+   - Click **Apply**.
 
-**Option 2 — real device (recommended, since this is what you'll use
-day to day, and it's the only way to test Samsung/Xiaomi-specific
-background behavior):**
-- On the phone: **Settings → About phone → tap "Build number" 7 times**
-  to enable Developer Options.
-- **Settings → Developer options → enable USB debugging** (or use
-  wireless debugging — see the note on that further down if you're
-  pairing over Wi-Fi instead of USB).
-- Connect via USB, accept the "Allow USB debugging" prompt on the
-  phone.
-- Verify it's visible: run `adb devices` in a terminal — should list
-  your device as `device`, not `unauthorized` or empty.
+4. **Set `ANDROID_HOME`**
+   - Copy the **Android SDK Location** shown in SDK Manager
+     (typically `C:\Users\<you>\AppData\Local\Android\Sdk`).
+   - Windows **Settings → System → About → Advanced system settings →
+     Environment Variables**. Under **User variables** add
+     `ANDROID_HOME` = that path.
+   - Edit `Path` and add `%ANDROID_HOME%\platform-tools` and
+     `%ANDROID_HOME%\emulator`.
+   - Close and reopen all terminals. Verify: `adb --version`.
 
-### A3. First-time build (does the heavy native setup once)
+5. **Java (JDK).** Usually bundled with Android Studio. Verify
+   `java -version`. If Studio shows *"Please Select Gradle JVM to Import
+   Project: Gradle X is incompatible with the Gradle JVM version Y"*,
+   click the **Use JVM 21** option it offers (Gradle 8.8 supports up to
+   JDK 22; Studio's bundled JDK 25 was too new). Pick whichever
+   compatible version Studio proposes.
 
-The very first build still needs to go through this step once, even if
-you plan to use Android Studio afterward — it's what generates the
-native `android` project folder and installs all dependencies
-correctly. After this, you can switch to the Studio-only workflow in
-A4 for everyday runs.
+### A2. Connect a device (emulator or real phone)
 
-1. Unzip this project, open a terminal **inside the project folder**
-   (`audio-poc`).
-2. Install dependencies:
-   ```
-   npm install
-   ```
-3. Generate the native Android project:
-   ```
-   npx expo prebuild
-   ```
-4. Build and install onto whatever device is visible to `adb` (this
-   also starts the Metro bundler):
-   ```
-   npx expo run:android
-   ```
-   First run takes several minutes (Gradle build). The app should
-   auto-launch on the emulator or connected device when done.
+**Emulator:** Android Studio → **Virtual Device Manager → Create
+Device** → pick a phone and system image → ▶ to boot it once.
 
-### A4. Everyday workflow: run and pick device from inside Android Studio
+> **Disk-space note:** an emulator image plus its quick-boot snapshot
+> can use several GB. Create only one AVD, and use a real device when
+> you can.
 
-Once A3 has been done at least once (so the `android` folder exists),
-you can skip the CLI entirely and work the way you're used to from
-Capacitor:
+**Real device (recommended):**
+- **Settings → About phone → tap Build number 7 times**.
+- **Settings → Developer options → USB debugging** on.
+- Connect by USB and accept the "Allow USB debugging" prompt.
+- Verify: `adb devices` lists it as `device`.
 
-1. Open Android Studio.
-2. **File → Open**, and select the `audio-poc\android` folder (not the
-   project root — Android Studio needs the native `android` subfolder
-   specifically, since that's the actual Gradle/Android project; the
-   `audio-poc` root is the React Native/JS project, which Android
-   Studio doesn't open directly).
-3. Let Gradle sync finish (progress bar at the bottom) — this can take
-   a few minutes the first time you open it this way.
-4. In the device dropdown at the top toolbar (next to the Run button),
-   select your connected phone or a running emulator — exactly like in
-   your Capacitor project.
-5. Click the ▶ **Run** button (or Shift+F10).
-6. **Important — start Metro first, in a separate terminal, before or
-   right after hitting Run:**
+**Wireless debugging (Android 11+):**
+1. Phone: **Developer options → Wireless debugging → on**.
+2. Tap **Pair device with pairing code** (shows IP:port and a 6-digit code).
+3. PC: `adb pair <ip>:<pairing-port>` and enter the code.
+4. `adb devices -l`. A paired phone often appears as `adb-<serial>...`
+   (mDNS name) instead of an IP. That is normal and already connected.
+   Only if it is absent, run `adb connect <ip>:<debug-port>` using the
+   port on the main Wireless debugging screen (different from the
+   pairing port).
+5. Phone and PC must be on the same Wi-Fi.
+
+### A3. First-time build
+
+1. Open a terminal **inside the project folder**.
+2. `npm install`
+3. `npx expo prebuild` (generates the native `android` folder)
+4. `npx expo run:android` (builds, installs on the device `adb` sees,
+   and starts Metro). The first run takes several minutes.
+
+If both an emulator and a phone are connected, choose the target:
+`npx expo run:android --device` (it shows a list).
+
+### A4. Everyday workflow: run from Android Studio
+
+After A3 has run once (so `android/` exists):
+
+1. Android Studio → **File → Open** → select the project's **`android`**
+   folder (not the project root).
+2. Let Gradle sync finish.
+3. Pick your phone or emulator in the **device dropdown** in the top
+   toolbar.
+4. **Start Metro in a separate terminal first:**
    ```
    npx expo start --dev-client
    ```
-   Unlike a plain native Android app, this project still needs the
-   Metro bundler serving the JS bundle — Android Studio's Run button
-   only builds and installs the native shell; it doesn't start Metro
-   for you. Leave this terminal running while you work. If the app
-   opens but shows a red "Unable to load script" screen, this is the
-   usual cause — make sure Metro is running and the phone/emulator can
-   reach your PC on the network (same Wi-Fi, or USB with port
-   forwarding already set up by `adb`, which happens automatically for
-   USB-connected devices).
+   Studio's Run button only builds and installs the app. It does not
+   start Metro. See **Part E** if the app then says it is searching for
+   or cannot find a server.
+5. Click ▶ **Run** (Shift+F10).
 
-From here on, for day-to-day changes to `App.tsx` or the service files,
-you don't need to rebuild in Android Studio at all — Metro hot-reloads
-JS changes automatically. You only need to hit Run again in Android
-Studio when a **native** dependency changes (e.g. you add a new native
-library and run `npx expo prebuild` again).
+JS changes hot-reload through Metro. Hit Run in Studio again only when
+native code or native dependencies change.
 
-### A5. What you CAN and CANNOT validate on Windows
+### A5. What you can and cannot validate
 
-| Test | Emulator | Real Android device (any brand) | Real Samsung/Xiaomi device |
+| Test | Emulator | Any real Android device | Real Samsung/Xiaomi |
 |---|---|---|---|
 | Download, play, loop | ✅ | ✅ | ✅ |
 | Screen-lock playback/recording | ✅ | ✅ | ✅ |
-| Background playback persistence | ✅ (stock Doze emulated) | ✅ | ✅ |
-| OEM background-kill behavior (Samsung "sleeping apps", Xiaomi Autostart) | ❌ not reproducible | ❌ unless it happens to be that brand | ✅ only way to test this |
+| Background playback persistence | ✅ | ✅ | ✅ |
+| Real microphone input | ⚠️ needs host-mic setting, see F3 | ✅ | ✅ |
+| OEM background-kill behaviour | ❌ not reproducible | ❌ unless that brand | ✅ only way |
 
-iOS **cannot** be built or tested from Windows at all — see Part C.
+### A6. Android Phase 2 (background recording): native pieces required
+
+Background recording needs a **foreground service of type
+microphone**. These pieces live inside the generated `android/`
+folder, so **`prebuild --clean` deletes them**. Re-add after any clean.
+
+1. Three Kotlin files in
+   `android/app/src/main/java/com/example/audiopoc/`:
+   `RecordingForegroundService.kt`, `RecordingForegroundModule.kt`,
+   `RecordingForegroundPackage.kt`.
+2. Register the package in `MainApplication.kt`
+   (`packages.add(RecordingForegroundPackage())` in the package list;
+   the exact code differs between SDK versions).
+3. In `AndroidManifest.xml`:
+   - Permissions: `FOREGROUND_SERVICE` and
+     **`FOREGROUND_SERVICE_MICROPHONE`** (required on Android 14+).
+   - Inside `<application>`:
+     ```xml
+     <service
+         android:name=".RecordingForegroundService"
+         android:foregroundServiceType="microphone"
+         android:exported="false" />
+     ```
+4. `app.json` → `android.permissions` includes
+   `FOREGROUND_SERVICE_MICROPHONE`.
+5. **Rebuild**. A JS reload is not enough for native changes.
+
+Status on SDK 57 / New Architecture: **not yet re-verified.** The
+module uses the older native-module style, which normally works through
+React Native's interop layer. Confirm it on a device.
 
 ---
 
-## PART B — macOS: iOS build via Xcode
+## PART B — iOS on Mac
 
-### B1. One-time environment setup
+### B0. Know your Xcode and macOS combination first
 
-1. **Install Node.js (LTS)** from https://nodejs.org, or via Homebrew:
-   ```
-   brew install node
-   ```
-2. **Install Xcode** from the Mac App Store (free, but large — several
-   GB). Open it once after installing so it finishes component setup.
-3. **Install Xcode Command Line Tools**:
-   ```
-   xcode-select --install
-   ```
-4. **Install CocoaPods** (manages iOS native dependencies):
-   ```
-   sudo gem install cocoapods
-   ```
-5. **Install Watchman** (recommended, improves file-watching):
-   ```
-   brew install watchman
-   ```
+| Your setup | What to expect |
+|---|---|
+| **Xcode 27** (macOS 26.6 or 27) | Needs **Expo SDK 57+** with the settings in **Part H**. Older SDKs fail in several ways (Simulator not found, deployment-target errors, Swift errors, launch crash). |
+| **Xcode 26.x** | Works with older SDKs. **Xcode 26 will not run on macOS 27**, so downgrading Xcode is not an option on the latest macOS. |
 
-### B2. Build and run on the iOS Simulator (CLI)
+Why Xcode 27 is different:
+- `Simulator.app` no longer exists. It is replaced by **Device Hub**
+  (`com.apple.dt.Devices`). Expo's CLI supports this from CLI 56+.
+- Xcode 27 rejects iOS deployment targets below 15.0.
+- Apps built with the iOS 27 SDK **must adopt the UIScene lifecycle**,
+  or they close instantly at launch.
 
-1. Unzip the project, open Terminal in the project folder.
-2. Install dependencies:
-   ```
-   npm install
-   ```
-3. Generate the native iOS project (also runs `pod install`):
-   ```
-   npx expo prebuild
-   ```
-4. Build and launch on the Simulator:
-   ```
-   npx expo run:ios
-   ```
-   First run takes several minutes. This opens the iOS Simulator
-   automatically and installs the app.
+### B1. One-time setup
 
-   To pick a specific simulated device:
+1. Node.js LTS (`brew install node`).
+2. **Xcode** from the Mac App Store. Open it once, accept the license
+   and any "install additional components" prompt.
+3. Select it and accept the license:
    ```
-   npx expo run:ios --device "iPhone 15 Pro"
+   sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+   sudo xcodebuild -license accept
+   xcode-select -p
    ```
-   (Run `xcrun simctl list devices` to see available simulator names.)
+4. Install an iOS simulator runtime (Xcode → Settings → Components).
+5. CocoaPods (`sudo gem install cocoapods`), Watchman (`brew install watchman`).
+6. **Free disk space.** Xcode, simulator runtimes, DerivedData and the
+   device symbol cache are large. Check:
+   ```
+   df -h /System/Volumes/Data
+   ```
+   Keep **at least 15 GB** free. Safe to clear:
+   `rm -rf ~/Library/Developer/Xcode/DerivedData`, the project's
+   `ios/build`, `xcrun simctl delete unavailable`, and unused runtimes.
 
-### B3. Build and run on a real iPhone — via Xcode (device picker, same idea as Android Studio)
+### B2. Project setup for Xcode 27 (do once per project)
 
-1. Connect the iPhone via USB (or use wireless debugging, already paired
-   in Xcode).
-2. Open `audio-poc/ios/audiopoc.xcworkspace` in Xcode (NOT the `.xcodeproj`
-   file — must be the `.xcworkspace`).
-3. In Xcode, select your iPhone as the run target from the device
-   dropdown in the top toolbar — this is Xcode's equivalent of Android
-   Studio's device dropdown.
-4. Under **Signing & Capabilities** for the app target, select your
-   Apple ID / development team (free Apple ID works for local device
-   testing, no paid account required for this).
-5. Start Metro in a terminal first, same reasoning as the Android
-   Studio flow above:
-   ```
-   npx expo start --dev-client
-   ```
-6. Click the ▶ Run button in Xcode.
-7. First time only: on the iPhone, go to **Settings → General → VPN &
-   Device Management** and trust your developer certificate.
+Summary (details and reasons are in **Part H**):
 
-### B4. What you CAN and CANNOT validate on iOS
+1. Expo `57.0.27` or later, `expo-build-properties` `57.0.22` or later.
+2. `app.json` → `plugins`:
+   ```json
+   "plugins": [
+     "expo-dev-client",
+     ["expo-build-properties", { "ios": { "enableSceneSupport": true } }]
+   ]
+   ```
+3. `package.json`:
+   ```json
+   "expo": {
+     "autolinking": {
+       "buildFromSource": ["expo-modules-core"]
+     }
+   }
+   ```
+4. `app.json` → `ios.bundleIdentifier` set to your own unique ID.
+5. Regenerate and confirm the scene manifest exists:
+   ```
+   npx expo prebuild --clean --platform ios
+   grep -l UIApplicationSceneManifest ios/*/Info.plist
+   ```
+   The `grep` must print a path.
+6. After `--clean`, **re-select your signing team** (B4 step 3).
+
+### B3. Run on the iOS Simulator (terminal or VS Code)
+
+```
+npx expo run:ios
+```
+Expo CLI 56+ boots the simulator through Device Hub. To choose a
+specific simulator:
+```
+npx expo run:ios --device
+```
+(shows a list of simulators and connected iPhones) or by name:
+```
+npx expo run:ios --device "iPhone 17 Pro"
+```
+To open Device Hub yourself: `open -b com.apple.dt.Devices`.
+
+If you see `Can't determine id of Simulator app`, you are on an SDK
+older than 56 under Xcode 27. See Part H, item H1.
+
+### B4. Run on a real iPhone from Xcode (select the device in Xcode)
+
+1. **Prepare the iPhone:**
+   - Connect by cable, unlock, tap **Trust**.
+   - **Settings → Privacy & Security → Developer Mode** on, then
+     restart when prompted.
+2. In Xcode: **File → Open** → `ios/<appname>.xcworkspace` (the
+   `.xcworkspace`, never the `.xcodeproj`).
+3. **Signing:** click the blue project icon → select the app target →
+   **Signing & Capabilities** → tick **Automatically manage signing** →
+   choose your **Team** (add your Apple ID in Xcode → Settings →
+   Accounts if the list is empty). If the bundle ID is unavailable,
+   change it to something unique and put the same value in `app.json`.
+   Free Apple IDs: the app expires after **7 days** and only a few apps
+   can be installed at once.
+4. **Select the device:** use the device dropdown in the Xcode top
+   toolbar (next to the Run ▶ button) and pick your iPhone.
+5. **Start Metro** in a terminal: `npx expo start --dev-client`.
+6. Click ▶ **Run** in Xcode.
+7. **First launch only:** on the iPhone go to **Settings → General →
+   VPN & Device Management → your Apple ID → Trust**, then open the app.
+8. When the app opens it shows the dev client screen. See **Part E**.
+
+> **If Xcode sits at "Copying shared cache symbols ... 0%"**, it is
+> copying OS symbols from the phone. It can take 10 to 30 minutes and
+> may stall when disk space is low. Don't wait. Stop it and use the
+> terminal route instead (B5), which does not need that step.
+
+### B5. Run on a real iPhone from the terminal (no Xcode UI)
+
+```
+npx expo run:ios --device
+```
+Pick your iPhone from the list. This builds, signs (needs the team set
+once) and installs. Metro starts automatically in that terminal.
+
+To see why an app closes at launch, run it with console output:
+```
+xcrun devicectl list devices
+xcrun devicectl device process launch --console --terminate-existing --device <device id> <your.bundle.id>
+```
+The first error line is almost always the cause (examples in Part H).
+
+### B6. What you can and cannot validate on iOS
 
 | Test | Simulator | Real iPhone |
 |---|---|---|
 | Download, play, loop | ✅ | ✅ |
-| Screen-lock playback | ⚠️ simulator has no real lock screen behavior — unreliable | ✅ |
-| Background playback persistence | ❌ simulator doesn't suspend apps realistically | ✅ |
-| Microphone recording | ❌ simulator has no real mic input | ✅ required |
-
-**For this project, iOS testing of anything background/lock/mic-related
-requires a real iPhone** — the Simulator is only useful for confirming
-the UI and basic in-foreground playback logic.
+| Screen-lock playback | ⚠️ unreliable | ✅ |
+| Background playback persistence | ❌ | ✅ |
+| Microphone recording | ❌ no real mic | ✅ required |
+| iOS Phase 2 (background recording via audio session) | ❌ | ✅, **not built yet** |
 
 ---
 
-## PART C — Can I do iOS from Windows at all?
+## PART C — iOS from Windows
 
-Short answer: **not locally**. `expo run:ios` and Xcode both require
-macOS — there's no Windows equivalent tool for building or code-signing
-iOS apps.
-
-Options if you don't own a Mac:
-1. **Expo Application Services (EAS) Build** — cloud-builds the iOS app
-   from your Windows machine and gives you an installable build (via
-   TestFlight or ad-hoc distribution) without needing local Xcode:
-   ```
-   npm install -g eas-cli
-   eas login
-   eas build --platform ios --profile development
-   ```
-   Still needs an Apple Developer account (free tier has limits; paid
-   is $99/year and required for TestFlight distribution).
-2. **Borrow/rent a Mac** — a colleague's machine, a cloud Mac rental
-   service (e.g. MacStadium, MacinCloud), just for the build + real
-   device testing step.
-
-For now, since you're on Windows: proceed with **Part A** for the
-Android side, and treat iOS as a "when you have Mac access" step —
-the Android and iOS code in this project is identical (same
-`App.tsx`/services), only the build tooling differs.
+Not possible locally. `expo run:ios` and Xcode require macOS.
+Options: **EAS Build** (cloud, needs an Apple Developer account for
+distribution; note EAS Xcode 27 images were still "coming soon" at the
+last check) or a Mac you can borrow or rent.
 
 ---
 
-## PART D — Troubleshooting log: real errors hit during setup, and why each fix works
+## PART D — Earlier Android/Windows troubleshooting log (SDK 51 project)
 
-Keep this section as a reference — these are errors actually encountered
-while setting this project up, in the order they tend to surface, with
-the reasoning behind each fix (not just the command) so the same logic
-can be applied if a similar error shows up again later.
+Errors hit while first setting up the Android build, kept as reference.
 
-### D1. `A problem occurred configuring project ':expo'` /
-`MissingPropertyException: Could not get unknown property 'release'`
-
-**Symptom:**
-```
-Caused by: groovy.lang.MissingPropertyException: Could not get unknown
-property 'release' for SoftwareComponent container...
-```
-thrown from `expo-modules-core\android\ExpoModulesCorePlugin.gradle`.
-
-**Why it happens:** this is a known Gradle/Expo interaction issue. The
-`expo-modules-core` Gradle plugin tries to publish a `release` software
-component, but that component only exists once the Android library
-plugin has finished configuring it. Running the build with
-`--configure-on-demand` (as `npx expo run:android` does by default)
-can change the order projects get evaluated in, so `expo-modules-core`'s
-publishing step sometimes runs before the `release` component exists
-yet — hence "unknown property 'release'". It's a build-ordering race,
-not a mistake in the project's own code.
-
-**Fix — disable configure-on-demand**, which removes the ordering
-variability that triggers the race:
-
-Add to `android/gradle.properties`:
+### D1. `Could not get unknown property 'release'` (project `:expo`)
+Cause: `--configure-on-demand` changes project evaluation order, so
+`expo-modules-core`'s publishing block ran before the `release`
+component existed. Fix in `android/gradle.properties`:
 ```
 org.gradle.configureondemand=false
 ```
 
-### D2. Stale/mismatched dependency versions
-
-**Symptom:** `npx expo-doctor` reporting:
-```
-✖ Check that packages match versions required by installed Expo SDK
-  react-native@0.74.0 - expected version: 0.74.5
-```
-
-**Why it happens:** each Expo SDK version pins exact compatible versions
-of `react-native` and related packages. If `package.json` has a
-slightly different version (e.g. installed before a dependency bump, or
-added by hand), the mismatch alone can cause downstream native build
-failures that look unrelated to versioning — including triggering the
-D1 issue above more reliably.
-
-**Fix — let Expo's own tool reconcile versions, not a manual edit:**
+### D2. Mismatched dependency versions
+`npx expo-doctor` flagged `react-native` not matching the SDK. Fix:
 ```
 npx expo install --fix
 npm install
 ```
-`expo install --fix` resolves the *whole* dependency set together
-against the installed SDK, rather than bumping one package in isolation,
-which avoids introducing a second mismatch elsewhere.
-
-**Then regenerate native folders**, since they were generated before the
-version fix and are now out of sync with the corrected `package.json`
-and `app.json`:
-```
-rd /s /q android
-rd /s /q ios
-npx expo prebuild --clean
-```
-(This project's `package.json` already has `react-native` pinned to
-`0.74.5` to prevent this specific mismatch on first install.)
+Then regenerate native folders (`prebuild --clean`).
 
 ### D3. `[CXX1101] NDK ... did not have a source.properties file`
+Cause: NDK folder incomplete or corrupt (interrupted download). Delete
+the folder, then reinstall it in Android Studio → **SDK Manager → SDK
+Tools → Show Package Details → NDK (Side by side)** and let it finish.
+PowerShell: `Remove-Item -Recurse -Force "<path>"`.
+cmd.exe: `rd /s /q "<path>"`. (PowerShell rejects `/s /q`.)
 
-**Symptom:**
+### D4. Gradle cache delete fails: "file is being used by another process"
+Cause: Gradle daemons still running. Close Android Studio, then:
 ```
-> [CXX1101] NDK at C:\Users\...\Sdk\ndk\26.1.10909125 did not have a
-  source.properties file
+.\gradlew.bat --stop
+Get-Process | Where-Object { $_.ProcessName -match "java|gradle" } | Stop-Process -Force
 ```
+Re-check, because daemons can respawn while Studio is open. A reboot
+clears all locks. After a half-deleted `.gradle\caches`, delete the
+whole `caches` folder (not part of it) and rebuild.
 
-**Why it happens:** this means the NDK folder exists on disk but is
-**incomplete or corrupted** — almost always from an interrupted or
-cancelled download via the SDK Manager. Gradle finds the folder, but
-can't find the `source.properties` file inside it that it uses to
-verify the NDK install, so it fails immediately rather than trying to
-use a broken toolchain.
+---
 
-**Fix — delete the broken folder and do a clean reinstall:**
+## PART E — App shows "Searching for development servers" (waiting for a server)
 
-Delete the folder (note: **PowerShell's `rd`/`Remove-Item` doesn't
-accept classic `cmd.exe` flags like `/s /q`** — use one of these,
-matching whichever shell you're in):
+**What it means:** this is a *development build*. The installed app
+contains the native code but **not your JavaScript**. It loads JS from
+**Metro**, the dev server on your computer. Xcode's Run and Android
+Studio's Run only **install** the app. They do not start Metro.
 
-PowerShell:
-```powershell
-Remove-Item -Recurse -Force "C:\Users\rajai\AppData\Local\Android\Sdk\ndk\26.1.10909125"
-```
-Command Prompt (cmd.exe):
-```
-rd /s /q "C:\Users\rajai\AppData\Local\Android\Sdk\ndk\26.1.10909125"
-```
+### E1. Fix steps (both platforms)
 
-Then reinstall cleanly via Android Studio's SDK Manager rather than the
-command line, since the Studio UI shows real download progress and is
-less likely to silently leave a half-downloaded folder again:
-1. Android Studio → **SDK Manager → SDK Tools** tab.
-2. Check **"Show Package Details"** (bottom right) to see specific NDK
-   versions instead of just "NDK (Side by side)".
-3. Under **NDK (Side by side)**, re-check the exact version that failed
-   (don't let it silently pick a different one), click **Apply**, and
-   let the download complete fully without interrupting it.
-4. Rebuild:
+1. **Start Metro and leave it running:**
    ```
-   npx expo run:android
+   npx expo start --dev-client
    ```
+   Note the address it prints, such as `http://192.168.x.x:8081`.
+2. **Same network:** phone and computer on the same Wi-Fi. Public or
+   office Wi-Fi often blocks device-to-device traffic. A phone hotspot
+   works as a test.
+3. **iPhone only:** allow **Local Network** for the app
+   (**Settings → Privacy & Security → Local Network** → app on). If it
+   was denied once, discovery silently fails. Toggle on, reopen the app.
+4. **Enter the URL manually** on the dev client screen
+   (**Enter URL manually**): `http://192.168.x.x:8081`.
+5. **Check from the phone's browser:** open
+   `http://<computer-ip>:8081/status`. It must say `packager-status:running`.
+   If that page does not load, it is a network problem, not an app problem.
+6. **Firewall/VPN:** allow Node through the computer's firewall; turn
+   off VPNs on both devices.
+7. **Last resort:** `npx expo start --dev-client --tunnel` (slower, works
+   across networks).
 
-If it still fails after a clean reinstall, check `android/build.gradle`
-for an explicit `ndkVersion` line — if present, make sure that *exact*
-version (and no other partial NDK folders) exists under `Sdk\ndk\`, so
-Gradle isn't accidentally picking a different, also-broken install.
+### E2. Android-specific
+
+- **USB-connected phone:** forward the port, then reopen the app:
+  ```
+  adb reverse tcp:8081 tcp:8081
+  ```
+- **Emulator:** reaches the computer automatically via `10.0.2.2`.
+- Red screen "Unable to load script" means Metro is not reachable. Use
+  the steps above.
+
+### E3. Free the port if Metro says 8081 is busy
+
+Mac: `lsof -ti:8081 | xargs kill`
+
+---
+
+## PART F — Feature test checklist and pulling recorded files
+
+### F1. Playback and loop (all platforms)
+
+1. Paste a URL (or use the prefilled sample) and tap **Download**.
+2. Confirm the progress counter moves and finishes.
+3. Tap **Play**. Confirm sound.
+4. Tap **Loop: On**, let the track finish, confirm it restarts.
+5. Lock the screen and background the app. Confirm audio and looping
+   continue and lock-screen controls appear.
+
+### F2. Recording (phase 1: foreground and locked screen)
+
+1. Tap **Start Recording**. Allow the microphone prompt.
+2. Speak for about 10 seconds. Confirm the timer advances.
+3. Lock the screen mid-recording (should keep going).
+4. Tap **Stop** and wait for the **"Recording saved"** alert before
+   pulling the file.
+5. Pull and play the file (F4 or F5). It should have the full duration.
+
+### F3. Emulator microphone (Android emulator only)
+
+No real audio reaches the app unless both are on:
+- Emulator **Extended Controls (⋮) → Microphone → "Virtual microphone
+  uses host audio input"**.
+- Windows **Privacy → Microphone**: desktop apps allowed (the emulator
+  process is `qemu-system-x86_64`).
+
+### F4. Pulling a recording off **Android**
+
+Recordings live in the app's private storage:
+`/data/data/<package>/files/live_recording.m4a`.
+
+- **Easiest:** Android Studio → **View → Tool Windows → Device File
+  Explorer** → `data/data/<package>/files/` → right-click the file →
+  **Save As**. (Debug builds only.)
+- **Terminal, Windows, use cmd.exe, not PowerShell:**
+  ```
+  adb exec-out run-as com.example.audiopoc cat files/live_recording.m4a > live_recording.m4a
+  ```
+  **Do not use PowerShell for this.** Its `>` re-encodes the bytes and
+  silently corrupts binary files. You get a file of normal size that
+  plays 0 seconds in VLC, which looks like a recorder bug but is not.
+- `adb pull` straight from `/data/data/...` fails with "Permission
+  denied", and copying to `/sdcard` also fails on Android 10+. Use the
+  two methods above.
+
+### F5. Pulling a recording off **iOS**
+
+There is no `adb`. Enable file sharing so the app's Documents folder
+shows in the Files app. In `app.json` → `ios.infoPlist`:
+```json
+"UIFileSharingEnabled": true,
+"LSSupportsOpeningDocumentsInPlace": true
+```
+Then `npx expo prebuild` and rebuild (native change). Afterwards:
+**Files app → On My iPhone → <app name> → live_recording.m4a**. Tap to
+play, or share it to your Mac.
+
+Alternative: Xcode → **Window → Devices and Simulators** → select the
+iPhone → select the app → gear icon → **Download Container**.
+
+### F6. Android background recording test (Phase 2, needs A6 done)
+
+1. Rebuild and install (native changes).
+2. **Start Recording.** A persistent **"Recording in progress"**
+   notification must appear immediately. If it doesn't, the native
+   module or service is not wired. Check Logcat before going further.
+3. Press the **home button** (do not swipe the app away). Wait 15 to
+   20 seconds.
+4. Reopen the app and tap **Stop**.
+5. Pull the file (F4). Duration should cover the **backgrounded time**.
+6. **Samsung/Xiaomi only:** if it still cuts off, set the OEM exemption
+   manually.
+   - Samsung: Settings → Battery → Background usage limits → remove the
+     app from Sleeping/Deep sleeping apps.
+   - Xiaomi: Settings → Apps → Manage apps → app → Autostart on, and
+     Battery saver → No restrictions.
+   - Reference: dontkillmyapp.com
+7. Swiping the app away from recents **will** still stop recording.
+   That is an OS limit, not a bug.
+
+### F7. iOS background recording
+
+**Not built yet.** It needs a held audio session with the right
+background mode. Note: iOS testing for recording and backgrounding
+requires a **real iPhone**.
+
+---
+
+## PART G — Running from VS Code with device selection
+
+VS Code's integrated terminal (**Terminal → New Terminal**) runs the
+same Expo commands. Device selection is done by the Expo CLI.
+
+### G1. One command (Metro starts automatically)
+
+| Goal | Command |
+|---|---|
+| iOS simulator (choose from list) | `npx expo run:ios --device` |
+| iOS simulator by name | `npx expo run:ios --device "iPhone 17 Pro"` |
+| Real iPhone | `npx expo run:ios --device` then pick the iPhone |
+| Android emulator or phone | `npx expo run:android --device` |
+
+Before choosing an Android target, list what `adb` sees: `adb devices`.
+Before choosing an iPhone, list devices: `xcrun devicectl list devices`.
+
+### G2. Two terminals (better for daily work)
+
+1. **Terminal 1, Metro (leave running):**
+   ```
+   npx expo start --dev-client
+   ```
+2. In the Metro terminal, press:
+   - `i` open on an iOS simulator, `shift+i` **choose** a simulator
+   - `a` open on Android, `shift+a` **choose** a device or emulator
+3. Or install from **Terminal 2** with `npx expo run:ios --device` or
+   `npx expo run:android --device`, then open the app. It connects to
+   the Metro already running.
+
+(Key bindings are shown in the Metro terminal's own help line. If they
+differ in your CLI version, trust the on-screen list.)
+
+### G3. Combining VS Code with Xcode or Android Studio
+
+- Edit code in VS Code with Metro running.
+- Use **Xcode** (B4) or **Android Studio** (A4) only when you need to
+  install a native change or pick a device in their UI.
+- Both IDEs share the same Metro server. You do not need one Metro per IDE.
+
+### G4. Common VS Code terminal issues
+
+- **Windows PowerShell vs cmd:** `rd /s /q` and `>` binary redirects
+  behave differently. See D3 and F4.
+- **Stale env vars:** after installing Android Studio or setting
+  `ANDROID_HOME`, fully restart VS Code.
+- **Stop a running build or Metro:** `Ctrl+C`. Orphaned processes:
+  `pkill -f xcodebuild` / `pkill -f expo` (Mac).
+
+---
+
+## PART H — Fixes to carry into the real implementation
+
+Everything below was found while getting the POC working. Apply these
+to the real app. **Status** says how well each is confirmed.
+
+### H1. iOS: Xcode 27 + Expo
+
+| # | Symptom | Cause | Fix | Status |
+|---|---|---|---|---|
+| H1.1 | `CommandError: Can't determine id of Simulator app` | Xcode 27 removed `Simulator.app` (replaced by Device Hub). SDK 51 to 54-era CLIs only look for Simulator. | Use **Expo SDK 57+** (Device Hub support is in CLI 56+). | Confirmed: build and launch work on SDK 57 |
+| H1.2 | `IPHONEOS_DEPLOYMENT_TARGET is set to 13.4, but the range of supported ... is 15.0 to 27.0` | Old React Native pods target iOS 13.4; Xcode 27 rejects < 15.0. | Upgrading the SDK fixes it. **Do not keep manual Podfile overrides.** | Confirmed (resolved by upgrade) |
+| H1.3 | `cannot find 'TARGET_IPHONE_SIMULATOR' in scope` in `expo-dev-menu` | Xcode 27 SDK no longer exposes that macro to older Expo native code. | Upgrade the SDK (same as above). | Confirmed |
+| H1.4 | App closes at launch on a **real iPhone**: `Library not loaded: @rpath/React.framework/React` (from `ExpoModulesWorklets`) | Expo's **precompiled** native modules expect a `React.framework` that the device build does not embed. The simulator embeds it and hides the problem. | `package.json`: `"expo": { "autolinking": { "buildFromSource": ["expo-modules-core"] } }`, then `cd ios && pod install`, delete the app from the phone, rebuild. | Confirmed for this app. The package name was inferred. If the next crash names another framework, add that package to the list. |
+| H1.5 | App closes at launch: `UIScene life cycle is required for apps built with this SDK` | iOS 27 SDK requires the scene lifecycle. SDK 57's older patches still generate the legacy `AppDelegate` startup. | Expo `57.0.27+`, `expo-build-properties` `57.0.22+`, plugin option `ios.enableSceneSupport: true`, then `npx expo prebuild --clean --platform ios`. Verify with `grep -l UIApplicationSceneManifest ios/*/Info.plist`. | Confirmed |
+| H1.6 | `Signing for "<app>" requires a development team` | `prebuild --clean` regenerates the Xcode project and drops the team. | Re-select the team in Xcode. Set `ios.bundleIdentifier` in `app.json`. `ios.appleTeamId` is the setting meant to persist the team across regenerations. | Team selection confirmed. **`appleTeamId` persistence not verified on SDK 57.** |
+| H1.7 | Xcode stuck at "Copying shared cache symbols ... 0%" | First-time OS symbol copy from the phone. Slow, and can stall when disk is low. | Use `npx expo run:ios --device` instead. Keep 15+ GB free. Delete `~/Library/Developer/Xcode/iOS DeviceSupport` to retry. | Workaround confirmed |
+| H1.8 | `xcodes` Homebrew install fails (`.build/apple/Products/Release` missing) | Known incompatibility with macOS 27's Swift toolchain. | Download Xcode manually from developer.apple.com (not needed on SDK 57). | Informational |
+| H1.9 | Unsure whether Xcode 26 can be installed alongside | Apple support: **Xcode 26 is not supported on macOS 27.** | Don't plan on downgrading. Stay on Xcode 27 and a current SDK. | Informational |
+
+How to see why an iOS app closes at launch (use this before guessing):
+```
+xcrun devicectl device process launch --console --terminate-existing --device <device id> <bundle id>
+```
+Alternatives: the **Console** app (select the iPhone, search the app
+name) or **Settings → Privacy & Security → Analytics & Improvements →
+Analytics Data** on the phone.
+
+### H2. JavaScript and dependency changes
+
+| # | Item | Detail |
+|---|---|---|
+| H2.1 | File system import | In recent SDKs the old file-system functions moved. Use `import * as FileSystem from 'expo-file-system/legacy'` (or migrate to the new API). |
+| H2.2 | Install flag | Use `npm install --legacy-peer-deps` while the audio libraries' peer ranges are older. Commit the lockfile created that way. |
+| H2.3 | Keep versions aligned | `npx expo install --fix` then `npx expo-doctor`. Do not hand-edit versions. |
+| H2.4 | `expo-build-properties` | Needed for `enableSceneSupport`. The earlier `deploymentTarget: 15.1` workaround is **no longer needed** on SDK 57. |
+
+### H3. Audio libraries and the New Architecture: **decision needed**
+
+- Expo SDK 55+ **forces the New Architecture**.
+- `react-native-track-player` **v4 is frozen** and built for the old
+  architecture. **v5 (`@rntp/player`)** is a rewrite and is
+  **commercially licensed** (personal and educational use free). Check
+  its pricing against your plans for the Bhajnavali app before
+  committing.
+- `react-native-audio-recorder-player` is also not flagged as New
+  Architecture ready. `expo-doctor` reports both
+  (`reactNativeDirectoryCheck`).
+- In the POC, the app **builds, installs and connects to Metro on a real
+  iPhone** through React Native's interop layer. **Still to record from
+  tests:** whether play, loop, lock-screen controls, recording and
+  background behaviour all work on SDK 57. Interop problems tend to
+  appear at runtime, not at build time.
+- Do not silence the doctor warning with
+  `expo.doctor.reactNativeDirectoryCheck.exclude` until you have
+  chosen to keep these libraries on purpose.
+- Alternatives to evaluate before the real migration: `@rntp/player`
+  (licence), Expo's own audio module, and a New Architecture recorder.
+
+### H4. Android recording fixes
+
+| # | Symptom | Cause | Fix |
+|---|---|---|---|
+| H4.1 | `open failed: ENOENT` when starting a recording | Recorder's native layer uses `java.io.File` and does not understand a `file://` URI. | Strip `file://` before `startRecorder()` on Android. Keep the URI form for Expo file APIs. |
+| H4.2 | Recording "works" but the file is tiny and unplayable | `RECORD_AUDIO` in the manifest is not enough. | Request the permission at runtime with `PermissionsAndroid` before recording. |
+| H4.3 | Valid size but inconsistent container | Library defaults not guaranteed to finalize cleanly. | Pass an explicit `AudioSet`: AAC encoder, MPEG_4 output, mic source. |
+| H4.4 | File plays 0 seconds in VLC after pulling | **PowerShell `>` corrupts binary.** | Pull with cmd.exe or Device File Explorer (F4). |
+| H4.5 | Recording dies when the app is backgrounded | No foreground service of type microphone. | A6: service + module + package + manifest + `FOREGROUND_SERVICE_MICROPHONE`. |
+| H4.6 | Foreground service + manifest edits vanish | `prebuild --clean` regenerates `android/` and `ios/`. | **To do before the real migration:** wrap the Kotlin files and manifest edits in an **Expo config plugin** (`withAndroidManifest` + `withDangerousMod`) so every prebuild reapplies them. |
+| H4.7 | Gradle `release` property error, NDK `source.properties` error, locked caches | See Part D. | See Part D. |
+
+### H5. Git hygiene
+
+Commit `android/` and `ios/` **for now**, because the custom native
+edits exist only there. Ignore generated and machine-specific files.
+
+Add to `.gitignore`:
+```
+node_modules/
+.expo/
+*.log
+build.log
+.DS_Store
+**/.DS_Store
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+*.apk
+*.aab
+
+# iOS
+ios/Pods/
+ios/build/
+ios/.xcode.env.local
+**/xcuserdata/
+DerivedData/
+```
+
+If ignored files are already tracked, untrack them (keeps them on disk).
+Use `--ignore-unmatch` so one missing path doesn't abort the whole command:
+```
+git rm -r --cached --ignore-unmatch .expo ios/Pods ios/build build.log
+```
+
+Expected in a regeneration commit: deleted `ic_launcher.png` /
+`ic_launcher_round.png` / `splashscreen.xml` alongside new
+`ic_launcher.webp` / `splashscreen_logo.png` /
+`ic_launcher_background.xml` (the newer template replaced them). Commit
+both the deletions and the additions. Check for stray build output with:
+```
+git status --short -uall | grep -E "Pods/|/build/|\.DS_Store|\.expo/|\.log"
+```
+
+### H6. Environment lessons
+
+- **Disk space:** Xcode, runtimes, DerivedData, the iOS device symbol
+  cache, emulator images and Gradle caches add up. Keep 15+ GB free
+  before big builds or Xcode downloads.
+- **Windows shells:** PowerShell and cmd.exe differ for `rd /s /q` and
+  `>`. When a command fails, check which shell you are in.
+- **Native change means rebuild.** A JS reload only covers JS.
+  New or edited native code needs a rebuild, and generated native
+  folders need regenerating when `app.json` or plugins change.
+- **After `prebuild --clean`:** re-set the signing team (iOS), re-add
+  the Android Phase 2 files (until H4.6 is done), and delete the old app
+  from the device before reinstalling.
+
+### H7. Pre-migration checklist
+
+- [ ] Choose the audio libraries (H3), including the track-player licence.
+- [ ] Record SDK 57 test results for playback, loop, recording and
+      background behaviour on a real iPhone and a real Android device.
+- [ ] Build the Expo config plugin for the Android foreground service (H4.6).
+- [ ] Build iOS background recording (held audio session).
+- [ ] Verify `ios.appleTeamId` persists across `prebuild --clean` (H1.6).
+- [ ] Confirm the `buildFromSource` list covers every precompiled
+      framework that crashes on device (H1.4).
+- [ ] Run the real app's component inventory (still not shared).

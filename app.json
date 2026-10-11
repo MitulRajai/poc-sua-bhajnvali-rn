@@ -7,9 +7,13 @@
     "ios": {
       "bundleIdentifier": "com.example.audiopoc",
       "infoPlist": {
-        "UIBackgroundModes": ["audio"],
-        "NSMicrophoneUsageDescription": "Used to record audio for versions and live streaming."
-      }
+        "UIBackgroundModes": [
+          "audio"
+        ],
+        "NSMicrophoneUsageDescription": "Used to record audio for versions and live streaming.",
+        "UIFileSharingEnabled": true,
+        "LSSupportsOpeningDocumentsInPlace": true
+}
     },
     "android": {
       "package": "com.example.audiopoc",
@@ -21,6 +25,9 @@
         "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
       ]
     },
-    "plugins": ["expo-dev-client"]
+    "plugins": [
+  "expo-dev-client",
+  ["expo-build-properties", { "ios": { "enableSceneSupport": true } }]
+]
   }
 }
