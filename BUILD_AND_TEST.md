@@ -16,6 +16,7 @@ not Expo Go. Follow the path that matches your machine.
 | **F** | Feature test checklist and how to pull recorded files (Android and iOS) |
 | **G** | Running from VS Code with device selection |
 | **H** | **Fixes to carry into the real implementation** (read before migration) |
+| **I** | **Testing without the dev server and without copying files** (standalone builds, in-app recording playback) |
 
 > **Two machines are in play.** Part A was written for the Windows
 > machine (`C:\Users\rajai\...`). Parts B, E, F and G apply to the Mac
@@ -230,9 +231,10 @@ Summary (details and reasons are in **Part H**):
 5. Regenerate and confirm the scene manifest exists:
    ```
    npx expo prebuild --clean --platform ios
-   grep -l UIApplicationSceneManifest ios/*/Info.plist
+   git grep --untracked -l UIApplicationSceneManifest -- ios
    ```
-   The `grep` must print a path.
+   The `git grep` command must print a path (it works the same on
+   Windows and Mac).
 6. After `--clean`, **re-select your signing team** (B4 step 3).
 
 ### B3. Run on the iOS Simulator (terminal or VS Code)
@@ -401,6 +403,9 @@ Studio's Run only **install** the app. They do not start Metro.
 
 Mac: `lsof -ti:8081 | xargs kill`
 
+Windows (cmd or PowerShell): `netstat -ano | findstr :8081`, then
+`taskkill /PID <pid from the last column> /F`
+
 ---
 
 ## PART F — Feature test checklist and pulling recorded files
@@ -540,7 +545,8 @@ differ in your CLI version, trust the on-screen list.)
 - **Stale env vars:** after installing Android Studio or setting
   `ANDROID_HOME`, fully restart VS Code.
 - **Stop a running build or Metro:** `Ctrl+C`. Orphaned processes:
-  `pkill -f xcodebuild` / `pkill -f expo` (Mac).
+  Mac: `pkill -f xcodebuild` and `pkill -f expo`.
+  Windows: `taskkill /IM node.exe /F` (this stops **all** Node processes).
 
 ---
 
@@ -557,7 +563,7 @@ to the real app. **Status** says how well each is confirmed.
 | H1.2 | `IPHONEOS_DEPLOYMENT_TARGET is set to 13.4, but the range of supported ... is 15.0 to 27.0` | Old React Native pods target iOS 13.4; Xcode 27 rejects < 15.0. | Upgrading the SDK fixes it. **Do not keep manual Podfile overrides.** | Confirmed (resolved by upgrade) |
 | H1.3 | `cannot find 'TARGET_IPHONE_SIMULATOR' in scope` in `expo-dev-menu` | Xcode 27 SDK no longer exposes that macro to older Expo native code. | Upgrade the SDK (same as above). | Confirmed |
 | H1.4 | App closes at launch on a **real iPhone**: `Library not loaded: @rpath/React.framework/React` (from `ExpoModulesWorklets`) | Expo's **precompiled** native modules expect a `React.framework` that the device build does not embed. The simulator embeds it and hides the problem. | `package.json`: `"expo": { "autolinking": { "buildFromSource": ["expo-modules-core"] } }`, then `cd ios && pod install`, delete the app from the phone, rebuild. | Confirmed for this app. The package name was inferred. If the next crash names another framework, add that package to the list. |
-| H1.5 | App closes at launch: `UIScene life cycle is required for apps built with this SDK` | iOS 27 SDK requires the scene lifecycle. SDK 57's older patches still generate the legacy `AppDelegate` startup. | Expo `57.0.27+`, `expo-build-properties` `57.0.22+`, plugin option `ios.enableSceneSupport: true`, then `npx expo prebuild --clean --platform ios`. Verify with `grep -l UIApplicationSceneManifest ios/*/Info.plist`. | Confirmed |
+| H1.5 | App closes at launch: `UIScene life cycle is required for apps built with this SDK` | iOS 27 SDK requires the scene lifecycle. SDK 57's older patches still generate the legacy `AppDelegate` startup. | Expo `57.0.27+`, `expo-build-properties` `57.0.22+`, plugin option `ios.enableSceneSupport: true`, then `npx expo prebuild --clean --platform ios`. Verify with `git grep --untracked -l UIApplicationSceneManifest -- ios`. | Confirmed |
 | H1.6 | `Signing for "<app>" requires a development team` | `prebuild --clean` regenerates the Xcode project and drops the team. | Re-select the team in Xcode. Set `ios.bundleIdentifier` in `app.json`. `ios.appleTeamId` is the setting meant to persist the team across regenerations. | Team selection confirmed. **`appleTeamId` persistence not verified on SDK 57.** |
 | H1.7 | Xcode stuck at "Copying shared cache symbols ... 0%" | First-time OS symbol copy from the phone. Slow, and can stall when disk is low. | Use `npx expo run:ios --device` instead. Keep 15+ GB free. Delete `~/Library/Developer/Xcode/iOS DeviceSupport` to retry. | Workaround confirmed |
 | H1.8 | `xcodes` Homebrew install fails (`.build/apple/Products/Release` missing) | Known incompatibility with macOS 27's Swift toolchain. | Download Xcode manually from developer.apple.com (not needed on SDK 57). | Informational |
@@ -657,8 +663,12 @@ Expected in a regeneration commit: deleted `ic_launcher.png` /
 `ic_launcher_background.xml` (the newer template replaced them). Commit
 both the deletions and the additions. Check for stray build output with:
 ```
-git status --short -uall | grep -E "Pods/|/build/|\.DS_Store|\.expo/|\.log"
+git status --short -uall
 ```
+Look through the list for `Pods/`, `/build/`, `.DS_Store`, `.expo/` or
+`.log` entries. To filter it instead:
+- Mac: `git status --short -uall | grep -E "Pods/|/build/|\.DS_Store|\.expo/|\.log"`
+- Windows PowerShell: `git status --short -uall | Select-String "Pods/|/build/|\.DS_Store|\.expo/|\.log"`
 
 ### H6. Environment lessons
 
@@ -685,3 +695,132 @@ git status --short -uall | grep -E "Pods/|/build/|\.DS_Store|\.expo/|\.log"
 - [ ] Confirm the `buildFromSource` list covers every precompiled
       framework that crashes on device (H1.4).
 - [ ] Run the real app's component inventory (still not shared).
+
+
+---
+
+## PART I — Testing without the dev server and without copying files
+
+### I1. Why the app keeps asking for a dev server
+
+A **Debug** build (what `npx expo run:*` and Xcode's Run button install
+by default) contains the native code but **not your JavaScript**. It
+fetches the JS from Metro on your computer every time it opens. If the
+computer is off, the app can only show "Searching for development
+servers".
+
+A **Release** build embeds the JavaScript bundle inside the app, so it
+opens and runs on its own. This is the build to use when you want to
+test away from your computer.
+
+| | Debug (dev client) | Release (standalone) |
+|---|---|---|
+| Needs Metro running | **Yes** | **No** |
+| Hot reload / dev menu / red error screen | Yes | No |
+| Change JS and see it | instantly | rebuild and reinstall |
+| Closer to what users get | no | **yes** |
+| Where to read errors | Metro terminal | device logs (see I1.4) |
+
+Use Debug while developing. Install a Release build when you want to
+carry the phone around and test on its own.
+
+### I1.1 iOS: standalone build on a real iPhone
+
+From the project folder:
+```
+npx expo run:ios --configuration Release --device
+```
+Pick your iPhone from the list. Unlock the phone and keep it connected
+until the app opens. After that you can unplug and turn the Mac off.
+
+Same thing from Xcode instead:
+1. Open `ios/<appname>.xcworkspace`.
+2. **Product → Scheme → Edit Scheme… → Run → Info →
+   Build Configuration → Release.**
+3. Pick your iPhone in the top toolbar, then click ▶ Run.
+4. To go back to a dev build, set the configuration back to **Debug**.
+
+Notes:
+- Signing is needed as before. Set the team in
+  **Signing & Capabilities**.
+- With a **free Apple ID** the build stops opening after **7 days**.
+  Rebuild to refresh it.
+- The first launch may need
+  **Settings → General → VPN & Device Management → Trust**.
+
+### I1.2 Android: standalone build on a real phone
+
+```
+npx expo run:android --variant release --device
+```
+Pick your phone from the list.
+
+Or build an APK once and install it on any phone:
+```
+cd android
+./gradlew assembleRelease        # Windows: .\gradlew.bat assembleRelease
+adb install -r app/build/outputs/apk/release/app-release.apk
+```
+The Expo template signs Release builds with the **debug keystore**, so
+this installs and runs fine for testing. It is **not** a Play Store
+build. A real upload keystore is a later task.
+
+### I1.3 Important behaviours
+
+- **Installing a Release build over a Debug build replaces it**, because
+  both use the same app ID. When you go back to developing, install the
+  Debug build again.
+- The Release build runs through the same interop layer and the same
+  native code, but Release-only crashes are possible. Treat a Release
+  test as a real test, not a formality.
+- After any JS change you must rebuild to see it in a Release build.
+
+### I1.4 Reading errors without Metro
+
+- **iPhone:** run it from the terminal and watch the console:
+  ```
+  xcrun devicectl list devices
+  xcrun devicectl device process launch --console --terminate-existing --device <device id> <bundle id>
+  ```
+  Or open the **Console** app on the Mac, select the iPhone, and filter
+  by the app name. On the phone itself, crash reports are in
+  **Settings → Privacy & Security → Analytics & Improvements →
+  Analytics Data**.
+- **Android:** `adb logcat` (filter with
+  Windows: `adb logcat | findstr /i "ReactNative audiopoc AndroidRuntime"`,
+  Mac: `adb logcat | grep -i -E "ReactNative|audiopoc|AndroidRuntime"`).
+
+### I2. Playing a recording inside the app (no copying to a computer)
+
+The updated `App.tsx` (in `poc-updates/`) adds a **My recording** section:
+
+1. **Start Recording**, speak, **Stop**, and wait for the
+   "Recording saved" alert. It shows the file size.
+2. Scroll to **My recording**. It shows the saved file size and a
+   **Play recording** button. Tap it to listen on the phone. The line
+   under it shows `position / duration`.
+3. The recording from an earlier session is found automatically on
+   launch, so you can reopen the app and replay it without recording
+   again.
+4. **How to read the result:**
+   - **Duration matches how long you spoke and you can hear it:** the
+     recording works.
+   - **Size under about 5 KB, with a warning shown:** the recording is
+     almost certainly empty. Check the microphone permission. On the
+     Android emulator, check the host-microphone setting (F3).
+   - **Duration shows 0:00 and it will not play:** the file was not
+     finalized correctly. Report it as a recorder issue.
+5. Each new recording **overwrites** the previous one (a single file,
+   `live_recording.m4a`). Timestamped files and a list of recordings are
+   a later improvement.
+
+The player is shared with the downloaded audio. Tapping Play on the
+downloaded audio reloads that file, and tapping Play recording loads the
+recording. Lock-screen controls show whichever one is loaded.
+
+### I3. Optional: also open the file outside the app
+
+- **iPhone:** with the file-sharing keys from F5, the recording appears
+  in **Files → On My iPhone → <app name>**.
+- **Android:** use F4 (Device File Explorer or the cmd.exe command).
+  These are only needed if you want to inspect the file on a computer.

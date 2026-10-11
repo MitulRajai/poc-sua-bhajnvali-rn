@@ -1,246 +1,219 @@
-# Project Handover Context: Capacitor → React Native Migration (Sua Bhajnavali App)
+# Project handover: Capacitor to React Native migration (Sua Bhajnavali app)
 
-## Background / original app
-- Existing production app: **Angular hybrid app built with Capacitor**
-  (package: `com.mgrtechsolutions.suabhajnavali`), Android + iOS.
-- Supports **4 languages**; non-English content is transliterated (kept
-  phonetically in the Latin/English script rather than translated).
-- Each "version"/bhajan has an associated **audio file**, downloaded on
-  app start and played back via Capacitor + a native audio plugin.
-- Real project is at: `C:\Users\rajai\source\sua-bhajnavali-app-rn` on
-  the user's Windows machine. (A POC folder, `audio-poc`, was built and
-  tested standalone — not yet merged into or started inside the real
-  app. See "Pending before real migration starts" below.)
+Paste this into a new thread to continue. Last updated 11 Oct 2026.
+Companion files: `BUILD_AND_TEST.md` (exact build, run and fix steps),
+`POC_STATUS_AND_NEXT_STEPS.md` (test matrix and ordered next steps),
+`poc-updates/` (latest `App.tsx` and one `AudioService.ts` edit).
 
-## Problem driving the migration
-Under Capacitor, audio playback runs through a WebView `<audio>` tag.
-This breaks in two ways:
-1. **Playback does not survive the app being backgrounded/closed** —
-   once a track finishes while the app is backgrounded, it can't
-   restart.
-2. **Looping a track reliably** (replay automatically on completion)
-   is unreliable for the same underlying reason.
+## 1. The app and why we are migrating
 
-## Requirements (confirmed so far)
-1. **Loop playback** — user can toggle a loop option on a single
-   bhajan's audio; it should auto-replay on completion.
-   **Status: validated in POC.**
-2. **Live audio recording** (video planned for a later phase, not now).
-   **Status: Phase 1 (foreground + locked-screen) validated in POC.**
-3. **Live streaming**: record audio and **push it live** so other
-   consumers (listeners) can play it in real time, not just a
-   recorded/stored file. **Status: protocol decided (RTMP → HLS), not
-   implemented.**
-4. Must support **both iOS and Android from a single codebase** →
-   React Native (Expo) chosen.
-5. **NEW — continuous "playlist" playback of downloaded bhajans**:
-   if, say, 5 of 10 bhajans are downloaded, the user should be able to
-   play through all 5 **continuously, automatically, with no further
-   user action** between tracks (not just looping one track).
-   **Status: not implemented. Likely does not need a separate POC** —
-   `react-native-track-player` (already chosen for the single-track
-   playback/loop POC) natively supports queueing multiple tracks and
-   auto-advancing through them (`TrackPlayer.add([...tracks])` +
-   `RepeatMode.Off` or `RepeatMode.Queue`), which is the same
-   mechanism already proven to survive backgrounding/locking in Phase
-   1. Worth a quick manual smoke-test with 2-3 local files when
-   building the real feature, but doesn't appear to need an isolated
-   throwaway POC the way background recording did.
-6. **NEW — stream/play audio directly from a URL without downloading
-   first**, as a second option alongside "download then play": user
-   should be able to choose either "Download & Play" or "Play Online
-   (stream)" for a given bhajan.
-   **Status: not implemented. Likely does not need a separate POC** —
-   `react-native-track-player` already accepts a remote URL directly as
-   a track's `url` field and streams it, with no requirement that the
-   file be downloaded to disk first. This means local-file playback and
-   remote-stream playback are both already supported by the same
-   player setup validated in the POC — the only new work is a UI
-   choice (download vs. stream) and passing a remote vs. local URI into
-   the existing `loadTrack`-style function.
-7. **NEW — push notifications**: mentioned as a future possibility,
-   but **no concrete requirement yet**. Explicitly **lowest priority**
-   at this stage — noted here only so it isn't forgotten, not something
-   to start designing for yet.
+- Existing production app: **Angular hybrid app on Capacitor**
+  (`com.mgrtechsolutions.suabhajnavali`), Android and iOS.
+- Four languages. Non-English content is **transliterated** into the
+  Latin script, not translated.
+- Each bhajan ("version") has an audio file, downloaded when the app
+  starts and played with a Capacitor audio plugin.
+- **Problems under Capacitor:** playback runs through a WebView audio
+  tag, so it stops when the app is backgrounded or closed, and looping
+  after the app is closed is unreliable.
+- **Decision:** move to **React Native with Expo** (one codebase for
+  iOS and Android) and fix audio with a native player.
 
-## Key technical decisions made
-- **Playback**: `react-native-track-player`, not `expo-av`. Runs via a
-  real native background service / `AVAudioSession`, not a WebView tag
-  — fixes the Capacitor playback problem directly. Auto-implements
-  Android's `MediaSessionCompat` pattern, the same mechanism VLC/
-  Spotify rely on for automatic Doze/OEM-battery-kill exemption during
-  playback — confirmed no extra permission needed for playback
-  background survival.
-- **Looping**: `TrackPlayer.setRepeatMode(RepeatMode.Track)` for a
-  single track. (For the new continuous-playlist requirement above,
-  the same API family extends naturally — multiple queued tracks
-  instead of one.)
-- **Recording**: `react-native-audio-recorder-player`, file-based, for
-  the current phase. Will **not** be sufficient once true live RTMP
-  push streaming is built — that needs a native RTMP publisher (e.g.
-  HaishinKit on iOS, `rtmp-rtsp-stream-client-java` on Android, or a
-  wrapper like `react-native-nodemediaclient`).
-- **Live streaming protocol**: confirmed — **RTMP push from the client
-  → media server transcodes to HLS for playback** on the consumer
-  side. Not yet implemented — only decided as the target.
-- **Background recording/streaming is structurally harder than
-  background playback**: no "blessed" OS exemption category for
-  background mic use (unlike playback's `MediaSessionCompat`
-  exemption). Samsung ("Sleeping apps"/"Deep sleeping apps") and
-  Xiaomi/MIUI (Autostart, Battery Saver) restrictions have **no
-  standard API** — only `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` is a
-  real Android intent; OEM-specific toggles must be set manually by
-  the user via Settings. dontkillmyapp.com is the reference for
-  per-OEM specifics.
+## 2. Requirements
 
-## Phased recording approach
-- **Phase 1 - CONFIRMED WORKING**: recording in the foreground,
-  including with the screen locked (locking the screen doesn't
-  background the process, so no special permission needed). Verified
-  with an actual playable `.m4a` file pulled from the device and
-  played in VLC.
-- **Phase 2 - NEXT UP, STARTING NOW**: continuing to record/stream
-  when the app is **fully backgrounded** (not just locked). Needs a
-  native foreground service (Android) / properly held `AVAudioSession`
-  (iOS). A permission-prompt hook already exists in the POC (fires via
-  `AppState` detection the moment the user backgrounds the app *while
-  recording*, opens the Android battery-optimization exemption dialog)
-  — but the actual background-capable native recording session itself
-  is **not implemented yet**. This is the work to start next.
-- Explicitly out of scope: app fully killed/swiped away — that's a
-  hard OS boundary no framework overrides; only backgrounded-but-not-
-  killed is in scope for Phase 2.
+| # | Requirement | Status |
+|---|---|---|
+| 1 | Loop a single bhajan | Works on Android in the POC (SDK 51). Not retested on SDK 57. |
+| 2 | Live audio recording (video later) | Foreground recording works on Android (SDK 51). Not retested on SDK 57 or iOS. |
+| 3 | Live streaming so others can listen in real time | Protocol chosen: **RTMP push, server converts to HLS**. Not built. |
+| 4 | One codebase, iOS and Android | Expo/React Native chosen. |
+| 5 | Continuous playlist of downloaded bhajans (play 5 of 10 in a row, no taps) | Not built. Probably no separate POC: track-player supports a queue. |
+| 6 | Play from a URL without downloading, as an alternative to download-then-play | Not built. Probably no separate POC: track-player accepts a remote URL directly. |
+| 7 | Push notifications | Lowest priority, no concrete requirement. |
 
-## POC status and real bugs found/fixed along the way
-The standalone `audio-poc` Expo/RN project validated the above. Files:
-- `App.tsx` — URL input + Download, Play/Pause, Loop toggle,
-  Start/Stop Recording with live timer.
-- `src/services/AudioService.ts` — downloads audio via
-  `expo-file-system` (caches to avoid re-download), sets up
-  `react-native-track-player`, loop via `RepeatMode.Track`.
-- `src/services/RecordingService.ts` — records via
-  `react-native-audio-recorder-player`. Contains three real fixes
-  found during testing (useful context if similar symptoms resurface
-  during the real migration):
-  1. **Runtime mic permission** - declaring `RECORD_AUDIO` in the
-     manifest/`app.json` is not enough on Android 6+; an explicit
-     `PermissionsAndroid.request()` is required before recording, or
-     the recorder silently "succeeds" while producing an unplayable
-     near-empty file.
-  2. **`file://` scheme stripping** - `expo-file-system`'s
-     `documentDirectory` returns a `file://` URI, but the native
-     Android recorder (`java.io.File`-based) doesn't understand that
-     prefix and throws `ENOENT` if passed it directly; strip the
-     scheme before passing the path to `startRecorder()`.
-  3. **Explicit `AudioSet` (AAC/MPEG_4)** - relying on the library's
-     default encoder config was less reliable for proper container
-     finalization; passing an explicit `AudioSet` (AAC encoder,
-     MPEG_4 output, mic source) made recordings consistently valid.
-- `index.js` — registers the TrackPlayer background playback service.
-- `app.json` — `UIBackgroundModes: ["audio"]` (iOS),
-  `FOREGROUND_SERVICE`/`WAKE_LOCK`/`RECORD_AUDIO`/
-  `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` (Android).
-- `package.json` — `react-native` pinned to `0.74.5` to match the
-  installed Expo SDK exactly (an earlier mismatch caused build
-  failures).
-- `BUILD_AND_TEST.md` — step-by-step Windows+Android Studio and
-  macOS+Xcode build/run instructions (including running via Android
-  Studio's own device picker, not just CLI), plus a troubleshooting
-  log of real Gradle/NDK/version-mismatch errors with reasoning.
+## 3. Key technical decisions
 
-### Non-recorder learning worth keeping in mind
-When verifying a recorded file by pulling it off the device, **don't
-pipe binary data through PowerShell's `>` redirect** (e.g.
-`adb exec-out ... cat ... > file`) — PowerShell's `>` does text/
-encoding conversion by default and can silently corrupt binary files,
-producing a file of plausible size that won't play, which looks
-exactly like a recording bug but isn't one. Use `cmd.exe` for that
-specific redirect, or `adb pull` from a location the app can write to,
-or Android Studio's **Device File Explorer** (most reliable, avoids
-shell redirection entirely).
+- **Playback: `react-native-track-player`.** Runs in a native background
+  service (Android) or an audio session (iOS), not a WebView. On Android
+  it uses the media-session pattern that also exempts VLC and Spotify
+  from battery killing, so playback needs no extra permission.
+- **Looping:** native repeat mode, not a JavaScript "on ended" handler.
+- **Recording: `react-native-audio-recorder-player`** (records to a
+  file). It will not cover live streaming. Pushing live audio will need a
+  native RTMP publisher (for example HaishinKit on iOS and
+  `rtmp-rtsp-stream-client-java` on Android, or a wrapper library).
+- **Background recording is harder than background playback.** There is
+  no OS exemption category for microphone use. Android needs a
+  **foreground service of type microphone**. Samsung and Xiaomi can still
+  kill it unless the user changes battery settings by hand (no API for
+  that). iOS needs a held audio session. A fully swiped-away app cannot
+  be kept recording by any framework.
+- **Phases:** Phase 1 = recording in the foreground and with the screen
+  locked. Phase 2 = recording while the app is backgrounded.
 
-### Testing environment specifics
-- Windows, Android Studio installed, JDK 21 selected for Gradle 8.8
-  compatibility.
-- Tested on the **Android Emulator** launched via `npx expo run:android`
-  (not Android Studio's Run button) — confirmed the emulator's
-  **Extended Controls → Microphone → "Virtual microphone uses host
-  audio input"** must be enabled for real mic input to reach the
-  virtual device, separately from Windows' own per-app mic permission
-  (`qemu-system-x86_64` needs that too, checked via Windows Settings →
-  Privacy → Microphone → Recent activity).
-- Also has a **physical Android device** set up via wireless ADB
-  debugging (paired via `adb pair`, shows as `adb-<serial>` rather than
-  a plain IP - expected for mDNS-based wireless debugging).
-- Prefers running via **Android Studio's device picker + Run button**
-  (open `audio-poc\android` in Studio, pick device from the toolbar)
-  over plain CLI, matching the Capacitor-era workflow — note Metro
-  (`npx expo start --dev-client`) must run in a separate terminal
-  alongside Studio's Run button, since Studio only builds/installs the
-  native shell.
+## 4. Where the code is
 
-## Original migration plan (proposed, not yet acted on)
-Before the POC detour, this plan was proposed for migrating the real
-app's components and never followed through on - still the intended
-starting point once Phase 2 is far enough along (or in parallel, see
-below):
-1. **User shares the real app's component list/structure** - not full
-   code, just an inventory - so scope can be sized. **Still not
-   shared.**
-2. **Inventory pass**, sorting existing pieces into: business logic/
-   services (API calls, data models, version-selection logic, the
-   language/transliteration mapping - expected to port with moderate
-   rework), Angular components/templates (need full UI rewrite as RN
-   components - not a mechanical translation), and native plugin usage
-   (current Capacitor audio/filesystem plugins - each needs a direct
-   RN-equivalent identified; track-player + audio-recorder-player
-   cover audio, others not yet inventoried).
-3. **Stand up the RN app skeleton** with `react-native-track-player`
-   wired for the real version-playback + loop use case first, inside
-   the actual app shell rather than only the standalone POC.
-4. **Migrate screen by screen**, starting with the language/
-   transliteration logic specifically (pure logic, no UI dependency,
-   lower risk to port and validate first).
+| | Windows machine | Mac |
+|---|---|---|
+| Path | `C:\Users\rajai\source\sua-bhajnavali-app-rn` | `/Users/mitulrajai/sua-bhajnavali-rn-poc/poc-sua-bhajnvali-rn` |
+| Expo SDK | 51 | **57** |
+| Used for | Android | iOS (also Android possible) |
 
-### Pending before real migration starts
-- The component/structure share (step 1) - **blocking**.
-- Whether `audio-poc`'s code gets merged into the real
-  `sua-bhajnavali-app-rn` project once Phase 2 is confirmed, or the
-  real app's RN skeleton gets built fresh with the POC's services
-  ported in as reference - **not yet decided**.
-- Confirming the exact current contents/state of
-  `C:\Users\rajai\source\sua-bhajnavali-app-rn` (old Angular/Capacitor
-  project still in place? empty folder earmarked for RN? already
-  partially set up?) - needed before step 3 can begin for real.
+It is still unclear whether the Windows folder is only the POC or also
+holds the real Angular/Capacitor app. **Confirm this first.**
 
-## Immediate focus for the new thread: Phase 2 — background recording
-Starting point: design and implement a native foreground service
-(Android) that keeps `react-native-audio-recorder-player` (or a
-successor, if streaming requirements push toward a different native
-recording approach) recording once the app is backgrounded, plus the
-iOS equivalent (a properly held `AVAudioSession` with the right
-background mode declared). The existing `AppState`-based permission-
-prompt hook in `RecordingService.ts` is the entry point this connects
-to — currently it only opens the battery-optimization settings dialog;
-it needs to actually keep the recording session alive once that's
-granted.
+**Git: the merge is COMPLETED** (reported 11 Oct 2026). Both machines
+had committed to `main`, so the histories had diverged. The rule used,
+kept for reference: generated/config files take the SDK 57 version and
+then re-apply custom edits. Hand-written source (`App.tsx`,
+`src/services/*`, the three Kotlin files) keeps the Phase 2 version,
+then gets the SDK 57 changes (`expo-file-system/legacy` import).
+Still worth confirming after the merge: `npm install --legacy-peer-deps`
+has been run, the three `Recording*.kt` files, the package registration
+in `MainApplication.kt` and the manifest `<service>` entry are all still
+present, and
+`git grep -n -e "<<<<<<<" -e ">>>>>>>" -- src android ios app.json package.json`
+prints nothing.
 
-## Not yet started
-- Phase 2 native background recording implementation (this thread's
-  focus).
-- RTMP push publisher integration (native module needed).
-- Media server side (RTMP ingest → HLS transcode) — no server work
-  done, protocol choice only confirmed.
-- Continuous multi-track "playlist" playback of downloaded bhajans
-  (new requirement #5 above) - likely no POC needed, extend the
-  existing track-player setup with a queue instead of a single track.
-- Stream-without-downloading playback option (new requirement #6
-  above) - likely no POC needed, pass a remote URL directly as a
-  track's `url` instead of a local file path.
-- Notifications (new requirement #7) - lowest priority, no concrete
-  requirement yet, not started.
-- Video (explicitly deferred — audio-only is current scope).
-- Actual migration of the real app's existing Angular/Capacitor
-  components, multi-language/transliteration logic, etc. into the RN
-  codebase — all work so far has been in the isolated `audio-poc`
-  scaffold, not the real app.
+## 5. POC files (Expo, TypeScript)
+
+- `App.tsx`: URL box and Download, downloaded-audio Play/Pause and Loop,
+  Start/Stop Recording, and (new) **My recording**: file size, in-app
+  playback, position/duration, a warning for files under about 5 KB.
+  Replacement file is in `poc-updates/`.
+- `src/services/AudioService.ts`: download and cache with
+  `expo-file-system`, track-player setup, loop. One small edit is needed
+  so `loadTrack` takes an id and title (`poc-updates/AudioService_loadTrack_change.md`).
+- `src/services/RecordingService.ts`: runtime microphone permission,
+  `file://` stripping on Android, explicit AAC/MPEG-4 settings, starts and
+  stops the Android foreground service, and an `AppState` prompt for the
+  battery exemption.
+- `index.js`: registers the track-player playback service.
+- `app.json`: iOS `UIBackgroundModes: ["audio"]` and microphone text;
+  Android permissions including `FOREGROUND_SERVICE_MICROPHONE`;
+  plugins `expo-dev-client` and `expo-build-properties`
+  (`ios.enableSceneSupport: true`).
+- `package.json`: `expo.autolinking.buildFromSource: ["expo-modules-core"]`.
+- Android native (inside `android/`, **written but never tested**):
+  `RecordingForegroundService.kt`, `RecordingForegroundModule.kt`,
+  `RecordingForegroundPackage.kt`, registration in `MainApplication.kt`,
+  and the `<service>` entry in `AndroidManifest.xml`. These are deleted
+  by `prebuild --clean`.
+
+## 6. Bugs found and fixed (apply to the real app)
+
+**Recording (Android)**
+- `ENOENT` on start: the native layer does not understand `file://`.
+  Strip the prefix before `startRecorder()`.
+- Tiny, unplayable file: the manifest permission is not enough. Request
+  `RECORD_AUDIO` at runtime.
+- Use an explicit AAC/MPEG-4 `AudioSet`.
+- Pulling the file: **PowerShell's `>` corrupts binary files** (plays 0
+  seconds). Use cmd.exe, Android Studio's Device File Explorer, or
+  in-app playback. `adb pull` from `/data/data` is permission denied.
+- Android emulator needs **Extended Controls, Microphone, "Virtual
+  microphone uses host audio input"** and Windows microphone access for
+  the emulator process.
+
+**Android build (SDK 51 era)**
+- `Could not get unknown property 'release'`:
+  `org.gradle.configureondemand=false`.
+- Mismatched versions: `npx expo install --fix`.
+- `[CXX1101] NDK ... source.properties`: delete the NDK folder and
+  reinstall it in SDK Manager.
+- Locked Gradle caches: close Android Studio, stop Gradle/Java
+  processes, delete the whole `caches` folder.
+- Pick a JDK that the project's Gradle supports (JDK 21 worked for
+  Gradle 8.8; Android Studio's JDK 25 did not).
+
+**iOS with Xcode 27 (the most important set)**
+- Xcode 27 removed `Simulator.app` (Device Hub replaces it), rejects iOS
+  deployment targets below 15, and requires the UIScene lifecycle.
+- **Fix = Expo SDK 57**: `expo` 57.0.27 or later, `expo-build-properties`
+  57.0.22 or later, `ios.enableSceneSupport: true`, then
+  `npx expo prebuild --clean --platform ios`.
+- App closed at launch on a real iPhone with
+  `Library not loaded: @rpath/React.framework/React`: precompiled Expo
+  modules. Fix with `buildFromSource` for `expo-modules-core`. The
+  package name was inferred, so add more packages if another framework
+  crashes.
+- **Xcode 26 cannot run on macOS 27.** Do not plan on downgrading.
+- Xcode's "Copying shared cache symbols" can hang, especially with low
+  disk space. Use `npx expo run:ios --device` instead.
+- `prebuild --clean` wipes the signing team. Re-select it in Xcode and
+  set `ios.bundleIdentifier` in `app.json`.
+- To find why an iOS app closes: `xcrun devicectl device process launch
+  --console --terminate-existing --device <id> <bundle id>`.
+- Mac disk was nearly full during this work (7 GB free). Keep 15 GB or
+  more free.
+
+## 7. Testing without a computer, and without copying files
+
+- **Debug builds need Metro.** The app fetches JS from your computer, so
+  with the computer off it shows "Searching for development servers".
+  When Metro is wanted: `npx expo start --dev-client`, same Wi-Fi, allow
+  Local Network on iPhone, or enter the URL by hand.
+- **Standalone Release builds need no server:**
+  - iPhone: `npx expo run:ios --configuration Release --device`
+    (or Xcode: Edit Scheme, Run, Build Configuration = Release).
+  - Android: `npx expo run:android --variant release --device`, or
+    `gradlew assembleRelease` then `adb install -r`.
+  - Trade-offs: no hot reload, rebuild to see JS changes, errors only in
+    device logs, a Release install replaces the Debug install, and free
+    Apple ID builds expire after 7 days.
+  - **Not yet tested.**
+- **Recordings can be played inside the app** (new `App.tsx`, section
+  "My recording"), so nothing needs copying to a computer. It shows size
+  and duration, and warns when the file is almost empty.
+
+## 8. Current status in one paragraph
+
+On Android (SDK 51) download, play, loop and foreground recording work.
+On the Mac (SDK 57) the app builds, installs on a real iPhone and
+connects to Metro, and it ran on the simulator. **Not yet tested:**
+anything audio on SDK 57, lock-screen behaviour, the Android Phase 2
+Kotlin files, in-app recording playback, and standalone Release builds.
+**Not built:** iOS background recording, RTMP/HLS streaming, playlist,
+stream-without-download, and the real app migration.
+
+## 9. Open decisions
+
+1. **Audio library.** SDK 55+ forces the New Architecture. track-player
+   v4 is frozen. v5 (`@rntp/player`) is commercially licensed (personal
+   and educational use free), so check pricing against your plans.
+   The recorder library is not flagged as New Architecture ready.
+   Both work through the interop layer at build time, runtime behaviour
+   unverified. Alternatives to evaluate: Expo's own audio module.
+2. Paid Apple developer account (free builds expire in 7 days).
+3. Merge `audio-poc` into the real project, or build the real RN
+   skeleton fresh and port services in.
+4. Android config plugin so the foreground service survives
+   `prebuild --clean`.
+
+## 10. Next steps, in order
+
+1. ~~Finish the git merge~~ **Done.** Quick follow-up checks: run
+   `npm install --legacy-peer-deps` if not yet done, and confirm no
+   conflict markers remain (command in section 4).
+2. Copy in `poc-updates/App.tsx` and make the `loadTrack` edit.
+3. Build a standalone Release build on the iPhone and run: download,
+   play, loop, lock the screen, record, play the recording in the app.
+4. Do the same on an Android phone.
+5. Test Android Phase 2 (background recording), then record all results
+   in `POC_STATUS_AND_NEXT_STEPS.md`.
+6. Choose the audio library.
+7. Build iOS background recording.
+8. Build the Android config plugin.
+9. Streaming (RTMP in, HLS out), playlist, stream-without-download.
+10. **Real migration:** share the component and file structure of the
+    existing app (inventory only, not full code) so it can be sorted into
+    logic that ports, UI that is rewritten, and native plugins that need
+    React Native equivalents. Port the language and transliteration
+    logic first, since it has no UI dependency.
+
+## 11. What to ask the new thread to do first
+
+- Confirm what is in the Windows folder (POC only, or the real app).
+- Walk through the test results from steps 3 to 5.
+- Ask for the component inventory template if you are ready to start
+  the real migration.
