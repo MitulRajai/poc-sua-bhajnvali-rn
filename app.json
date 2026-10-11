@@ -15,6 +15,7 @@
       "package": "com.example.audiopoc",
       "permissions": [
         "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_MICROPHONE",
         "WAKE_LOCK",
         "RECORD_AUDIO",
         "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"

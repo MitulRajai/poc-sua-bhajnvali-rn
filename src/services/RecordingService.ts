@@ -1,28 +1,84 @@
-import { AppState, AppStateStatus, Linking, Platform } from 'react-native';
-import AudioRecorderPlayer from 'react-native-audio-recorder-player';
+// UPDATED FILE — replace the existing:
+// src/services/RecordingService.ts
+//
+// Changes from the previous version:
+// 1. Imports NativeModules to reach the new RecordingForegroundModule.
+// 2. startRecording() now starts the native foreground service FIRST,
+//    before starting the actual recorder — the service's job is to
+//    make the process backgrounding-safe for the whole duration of the
+//    recording, not just reactively once backgrounding is detected.
+// 3. stopRecording() stops the foreground service after the recorder
+//    stops.
+// 4. watchForBackgroundDuringRecording's prompt is now specifically
+//    about the EXTRA Samsung/Xiaomi OEM-level exemption (battery
+//    optimization) — the foreground service itself is already running
+//    throughout, handling the baseline Android requirement.
+
+import {
+  AppState,
+  AppStateStatus,
+  Linking,
+  NativeModules,
+  PermissionsAndroid,
+  Platform,
+} from 'react-native';
+import AudioRecorderPlayer, {
+  AudioEncoderAndroidType,
+  AudioSourceAndroidType,
+  OutputFormatAndroidType,
+  AVEncoderAudioQualityIOSType,
+  AVEncodingOption,
+} from 'react-native-audio-recorder-player';
 import * as FileSystem from 'expo-file-system';
 
 const recorder = new AudioRecorderPlayer();
 
+// Bridge to the native Android foreground service (see
+// RecordingForegroundModule.kt). Undefined on iOS — guarded below.
+const { RecordingForegroundModule } = NativeModules;
+
 /**
- * The app-sandbox URI as expo-file-system gives it, e.g.
- * "file:///data/user/0/com.example.audiopoc/files/live_recording.m4a".
- * Useful for reading the file back afterward with expo-file-system APIs
- * (which DO expect the file:// scheme).
+ * Explicit format config instead of relying on library defaults.
+ * MPEG_4 container + AAC encoder is the standard combination for a
+ * properly finalized, widely-playable .m4a.
  */
+const audioSet = {
+  AudioEncoderAndroid: AudioEncoderAndroidType.AAC,
+  AudioSourceAndroid: AudioSourceAndroidType.MIC,
+  OutputFormatAndroid: OutputFormatAndroidType.MPEG_4,
+  AVEncoderAudioQualityKeyIOS: AVEncoderAudioQualityIOSType.high,
+  AVFormatIDKeyIOS: AVEncodingOption.aac,
+};
+
+/**
+ * Declaring RECORD_AUDIO in app.json/the manifest only makes the
+ * permission available to request — Android 6+ still requires an
+ * explicit RUNTIME request before use.
+ */
+async function ensureMicPermission(): Promise<boolean> {
+  if (Platform.OS !== 'android') return true;
+
+  const already = await PermissionsAndroid.check(
+    PermissionsAndroid.PERMISSIONS.RECORD_AUDIO
+  );
+  if (already) return true;
+
+  const result = await PermissionsAndroid.request(
+    PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+    {
+      title: 'Microphone Permission',
+      message: 'This app needs access to your microphone to record audio.',
+      buttonPositive: 'Allow',
+      buttonNegative: 'Deny',
+    }
+  );
+  return result === PermissionsAndroid.RESULTS.GRANTED;
+}
+
 export function getRecordingUri() {
   return `${FileSystem.documentDirectory}live_recording.m4a`;
 }
 
-/**
- * react-native-audio-recorder-player's native Android layer writes via
- * java.io.File, which does NOT understand a "file://" scheme prefix —
- * handing it a file:// URI is what produces the
- * "open failed: ENOENT (No such file or directory)" error, because the
- * literal string "file:" gets treated as part of a (nonexistent) path
- * segment rather than being stripped as a URI scheme.
- * The recorder needs a plain filesystem path instead.
- */
 function toNativeRecorderPath(fileUri: string) {
   return Platform.OS === 'android'
     ? fileUri.replace('file://', '')
@@ -30,19 +86,49 @@ function toNativeRecorderPath(fileUri: string) {
 }
 
 /**
- * Phase 1 scope: recording works while the app is in the foreground,
- * including when the screen is locked (locking the screen does NOT
- * background the app process — it just turns the display off, so no
- * special permission is needed for this case).
+ * Starts the native foreground service BEFORE the recorder, so the
+ * process is already protected the moment recording begins — not just
+ * once the user happens to background the app. No-ops on iOS (handled
+ * there via AVAudioSession background mode instead, not this module —
+ * see Phase 2 iOS notes).
+ */
+async function startForegroundProtection() {
+  if (Platform.OS !== 'android') return;
+  if (!RecordingForegroundModule) {
+    console.warn(
+      'RecordingForegroundModule not found — did you add the native ' +
+        'files and rebuild (npx expo run:android)? JS-only reload is ' +
+        'not enough for this change.'
+    );
+    return;
+  }
+  await RecordingForegroundModule.start();
+}
+
+async function stopForegroundProtection() {
+  if (Platform.OS !== 'android' || !RecordingForegroundModule) return;
+  await RecordingForegroundModule.stop();
+}
+
+/**
+ * Phase 2: recording now stays protected through backgrounding, not
+ * just foreground + locked screen. Still bounded by the hard OS limit
+ * — a fully killed (swiped away) process cannot be kept alive by any
+ * foreground service.
  */
 export async function startRecording(
   onProgress?: (positionMs: number) => void
 ): Promise<string> {
-  const fileUri = getRecordingUri();
+  const granted = await ensureMicPermission();
+  if (!granted) {
+    throw new Error(
+      'Microphone permission denied — enable it in Settings to record.'
+    );
+  }
 
-  // documentDirectory itself always exists (it's the app's own sandbox
-  // folder), but confirming here guards against edge cases where it
-  // hasn't been created yet on first app launch.
+  await startForegroundProtection();
+
+  const fileUri = getRecordingUri();
   const dirInfo = await FileSystem.getInfoAsync(FileSystem.documentDirectory!);
   if (!dirInfo.exists) {
     await FileSystem.makeDirectoryAsync(FileSystem.documentDirectory!, {
@@ -51,7 +137,7 @@ export async function startRecording(
   }
 
   const nativePath = toNativeRecorderPath(fileUri);
-  const uri = await recorder.startRecorder(nativePath);
+  const uri = await recorder.startRecorder(nativePath, audioSet);
   recorder.addRecordBackListener((e) => {
     onProgress?.(e.currentPosition);
   });
@@ -61,14 +147,16 @@ export async function startRecording(
 export async function stopRecording(): Promise<string> {
   const result = await recorder.stopRecorder();
   recorder.removeRecordBackListener();
+  await stopForegroundProtection();
   return result;
 }
 
 /**
- * Phase 2 hook: only relevant once the app is actually sent to the
- * background WHILE recording. We don't ask for this upfront — only
- * when the user's action (backgrounding mid-recording) actually needs it,
- * so the ask has clear context instead of a cold permission dialog.
+ * Now specifically about the EXTRA Samsung/Xiaomi OEM-level exemption
+ * (battery optimization) — the foreground service itself already
+ * covers the baseline Android requirement from the moment recording
+ * starts. This still matters because a foreground service alone does
+ * NOT guarantee survival against OEM-specific aggressive killing.
  */
 export function watchForBackgroundDuringRecording(
   isRecordingRef: { current: boolean },
@@ -83,20 +171,10 @@ export function watchForBackgroundDuringRecording(
   return () => sub.remove();
 }
 
-/**
- * Opens the Android battery-optimization exemption dialog directly
- * (this part IS a standard Android intent, no OEM-specific code needed).
- * The OEM-specific step (Xiaomi Autostart, Samsung sleeping-apps list)
- * has no equivalent API — it can only be described to the user and
- * linked to their general app-settings screen.
- */
 export function requestBackgroundRecordingPermission() {
   if (Platform.OS === 'android') {
     Linking.sendIntent('android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS');
   } else {
-    // iOS has no user-facing background-recording toggle; background
-    // audio-session behavior is governed by the UIBackgroundModes
-    // entitlement declared in app.json, reviewed at App Store submission.
     Linking.openSettings();
   }
 }
