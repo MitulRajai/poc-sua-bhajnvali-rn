@@ -77,12 +77,16 @@ export async function setupPlayerIfNeeded() {
   isPlayerSetup = true;
 }
 
-export async function loadTrack(localPath: string) {
+export async function loadTrack(
+  localPath: string,
+  id: string = 'version-audio',
+  title: string = 'Version Audio'
+) {
   await TrackPlayer.reset();
   await TrackPlayer.add({
-    id: 'version-audio',
+    id,
     url: localPath,
-    title: 'BHAJAN',
+    title,
     artist: 'POC',
   });
 }

@@ -94,7 +94,7 @@ for conflicts, kept for reference:
    remain:
    `git grep -n -e "<<<<<<<" -e ">>>>>>>" -- src android ios app.json package.json`
    (works on Windows and Mac; printing nothing means it is clean)
-2. **Apply the new code** from `poc-updates/`: replace `App.tsx` and
+2. ~~**Apply the new code**~~ **Done.** from `poc-updates/`: replace `App.tsx` and
    make the one-function edit in `AudioService.ts`.
 3. **Build a standalone Release build on the iPhone** (no Metro) and run
    the feature checks from Part F of `BUILD_AND_TEST.md`: download,
