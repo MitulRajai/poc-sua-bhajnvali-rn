@@ -307,7 +307,7 @@ The first error line is almost always the cause (examples in Part H).
 | Screen-lock playback | ⚠️ unreliable | ✅ |
 | Background playback persistence | ❌ | ✅ |
 | Microphone recording | ❌ no real mic | ✅ required |
-| iOS Phase 2 (background recording via audio session) | ❌ | ✅, **not built yet** |
+| iOS Phase 2 (background recording via audio session) | ❌ | ✅, **works** (reported on a real iPhone) |
 
 ---
 
@@ -492,9 +492,16 @@ iPhone → select the app → gear icon → **Download Container**.
 
 ### F7. iOS background recording
 
-**Not built yet.** It needs a held audio session with the right
-background mode. Note: iOS testing for recording and backgrounding
-requires a **real iPhone**.
+**Works on a real iPhone** (reported 11 Oct 2026), both with the app in
+the background and with the phone locked. The only setting needed is
+`UIBackgroundModes: ["audio"]` in `app.json`. No native service is
+required.
+
+- The Samsung/Xiaomi battery dialog is **Android-only** and must not
+  appear on iOS. Gate it with `Platform.OS === 'android'`.
+- Still to test: long recordings, a phone call or Siri interrupting,
+  Low Power Mode.
+- iOS testing for recording and backgrounding needs a **real iPhone**.
 
 ---
 
@@ -690,7 +697,7 @@ Look through the list for `Pods/`, `/build/`, `.DS_Store`, `.expo/` or
 - [ ] Record SDK 57 test results for playback, loop, recording and
       background behaviour on a real iPhone and a real Android device.
 - [ ] Build the Expo config plugin for the Android foreground service (H4.6).
-- [ ] Build iOS background recording (held audio session).
+- [x] iOS background recording works (audio background mode). 
 - [ ] Verify `ios.appleTeamId` persists across `prebuild --clean` (H1.6).
 - [ ] Confirm the `buildFromSource` list covers every precompiled
       framework that crashes on device (H1.4).

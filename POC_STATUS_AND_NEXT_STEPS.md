@@ -36,7 +36,7 @@ for conflicts, kept for reference:
 | Lock-screen playback / controls | ❓ | ❓ | n/a | ❓ |
 | Recording to file (foreground) | ✅ (playable `.m4a`) | ❓ | n/a (no mic) | ❓ |
 | Recording with screen locked | ❓ | ❓ | n/a | ❓ |
-| **Background recording (Phase 2)** | ❓ code written, **not tested** | ❓ | n/a | ⛔ not built |
+| **Background recording (Phase 2)** | ❓ code written, **not tested** | ❓ | n/a | ✅ reported working (backgrounded and locked) |
 | Play the recording inside the app | ❓ new, not tested | ❓ | n/a | ❓ |
 | Standalone build with no dev server | ❓ new, not tested | ❓ | ❓ | ❓ |
 
@@ -59,7 +59,8 @@ for conflicts, kept for reference:
 
 ## 4. Not started
 
-- iOS background recording (held audio session plus background mode).
+- Hardening iOS background recording: long sessions, interruptions
+  (calls, Siri), Low Power Mode. The basic case already works.
 - RTMP push from the phone and HLS playback for listeners, and the
   media server.
 - Continuous playlist playback of downloaded bhajans.
@@ -104,7 +105,9 @@ for conflicts, kept for reference:
 5. **Test Android Phase 2** (background recording). Rebuild after the
    native files are confirmed present, then run F6.
 6. **Decide the audio library** from the results of steps 3 to 5.
-7. **Build iOS background recording**, tested on the iPhone.
+7. ~~**Build iOS background recording**~~ **Works** (reported 11 Oct
+   2026). Remaining: limit the battery dialog to Android, then test long
+   sessions and interruptions on the iPhone.
 8. **Write the Expo config plugin** for the Android service.
 9. **Streaming, playlist, stream-without-download**, then the real
    migration (share the component inventory first).

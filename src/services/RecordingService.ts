@@ -162,6 +162,9 @@ export function watchForBackgroundDuringRecording(
   isRecordingRef: { current: boolean },
   onNeedsBackgroundPermission: () => void
 ) {
+  if (Platform.OS !== 'android') {
+    return () => {};
+  }
   const handler = (state: AppStateStatus) => {
     if (state !== 'active' && isRecordingRef.current) {
       onNeedsBackgroundPermission();

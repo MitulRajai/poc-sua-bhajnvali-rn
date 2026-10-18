@@ -144,6 +144,16 @@ prints nothing.
   set `ios.bundleIdentifier` in `app.json`.
 - To find why an iOS app closes: `xcrun devicectl device process launch
   --console --terminate-existing --device <id> <bundle id>`.
+**iOS background recording**
+- Works on a real iPhone with only `UIBackgroundModes: ["audio"]`.
+  Do not add the Android foreground-service work for iOS.
+- The "Keep recording in the background?" dialog (Samsung/Xiaomi
+  battery settings) is **Android-only**. Gate it with
+  `Platform.OS === 'android'` in `watchForBackgroundDuringRecording`.
+- Still untested on iOS: long recordings, calls and Siri interrupting
+  the session, Low Power Mode. App Store review will want a clear reason
+  for background microphone use.
+
 - Mac disk was nearly full during this work (7 GB free). Keep 15 GB or
   more free.
 
@@ -173,8 +183,13 @@ On the Mac (SDK 57) the app builds, installs on a real iPhone and
 connects to Metro, and it ran on the simulator. **Not yet tested:**
 anything audio on SDK 57, lock-screen behaviour, the Android Phase 2
 Kotlin files, in-app recording playback, and standalone Release builds.
-**Not built:** iOS background recording, RTMP/HLS streaming, playlist,
-stream-without-download, and the real app migration.
+**Reported working (11 Oct 2026, real iPhone):** recording keeps going
+when the app is backgrounded and when the phone is locked. It needs no
+native service, only the existing `UIBackgroundModes: ["audio"]` setting.
+The Android-only battery dialog was wrongly showing on iOS and must be
+limited to Android (see section 6).
+**Not built:** RTMP/HLS streaming, playlist, stream-without-download,
+and the real app migration.
 
 ## 9. Open decisions
 
@@ -202,7 +217,9 @@ stream-without-download, and the real app migration.
 5. Test Android Phase 2 (background recording), then record all results
    in `POC_STATUS_AND_NEXT_STEPS.md`.
 6. Choose the audio library.
-7. Build iOS background recording.
+7. ~~Build iOS background recording~~ Works already (see section 8).
+   Remaining: hide the battery dialog on iOS, then test long sessions
+   and interruptions (phone call, Siri, another app using the mic).
 8. Build the Android config plugin.
 9. Streaming (RTMP in, HLS out), playlist, stream-without-download.
 10. **Real migration:** share the component and file structure of the
